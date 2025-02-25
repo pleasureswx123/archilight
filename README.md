@@ -1,50 +1,111 @@
-# React + TypeScript + Vite
+# Archilight
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+一个基于 Three.js 的现代化门窗设计工具。支持实时 3D 预览、参数化建模、智能中挺布局等功能，让门窗设计更加直观和高效。
 
-Currently, two official plugins are available:
+## 功能特点
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react/README.md) uses [Babel](https://babeljs.io/) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+- 🎨 实时 3D 预览和交互
+  - 支持旋转、平移、缩放等视角操作
+  - 提供网格和坐标轴辅助
+  - 实时阴影和光照效果
 
-## Expanding the ESLint configuration
+- 📐 精确的尺寸控制
+  - 窗框宽度、高度、深度可调
+  - 毫米级精确控制
+  - 实时尺寸标注显示
 
-If you are developing a production application, we recommend updating the configuration to enable type aware lint rules:
+- 🎯 智能中挺系统
+  - 支持横向和纵向中挺
+  - 拖拽调整位置
+  - 钢笔工具绘制部分中挺
+  - 中挺属性可视化编辑
 
-- Configure the top-level `parserOptions` property like this:
+- 🛠 专业工具支持
+  - 钢笔工具：自由绘制中挺
+  - 选择工具：编辑中挺属性
+  - 智能吸附对齐
 
-```js
-export default tseslint.config({
-  languageOptions: {
-    // other options...
-    parserOptions: {
-      project: ['./tsconfig.node.json', './tsconfig.app.json'],
-      tsconfigRootDir: import.meta.dirname,
-    },
-  },
-})
+## 技术栈
+
+- ⚛️ React 18
+- 🎮 Three.js + React Three Fiber
+- 🎨 Ant Design
+- 🔧 TypeScript
+- 📦 Vite
+
+## 快速开始
+
+### 环境要求
+
+- Node.js 16+
+- npm 7+ 或 yarn
+
+### 安装
+
+```bash
+# 克隆项目
+git clone https://github.com/shangwenxue/Archilight.git
+
+# 进入项目目录
+cd Archilight
+
+# 安装依赖
+npm install
+# 或
+yarn install
+
+# 启动开发服务器
+npm run dev
+# 或
+yarn dev
 ```
 
-- Replace `tseslint.configs.recommended` to `tseslint.configs.recommendedTypeChecked` or `tseslint.configs.strictTypeChecked`
-- Optionally add `...tseslint.configs.stylisticTypeChecked`
-- Install [eslint-plugin-react](https://github.com/jsx-eslint/eslint-plugin-react) and update the config:
+### 构建
 
-```js
-// eslint.config.js
-import react from 'eslint-plugin-react'
-
-export default tseslint.config({
-  // Set the react version
-  settings: { react: { version: '18.3' } },
-  plugins: {
-    // Add the react plugin
-    react,
-  },
-  rules: {
-    // other rules...
-    // Enable its recommended rules
-    ...react.configs.recommended.rules,
-    ...react.configs['jsx-runtime'].rules,
-  },
-})
+```bash
+# 构建生产版本
+npm run build
+# 或
+yarn build
 ```
+
+## 使用说明
+
+### 基本操作
+
+- **视角控制**
+  - 左键拖拽：旋转视角
+  - 右键拖拽：平移视角
+  - 滚轮：缩放视角
+  - 空格键 + 左键：平移视角
+
+- **工具使用**
+  - 钢笔工具：点击开启，在窗框或中挺上绘制新的中挺
+  - 选择工具：点击中挺进行选择，可以编辑属性或删除
+
+### 中挺操作
+
+- **添加中挺**
+  - 使用工具面板的"添加横中挺"或"添加竖中挺"按钮
+  - 使用钢笔工具绘制部分中挺
+
+- **编辑中挺**
+  - 直接拖拽调整位置
+  - 选中后在属性面板调整参数
+  - 点击删除按钮移除中挺
+
+## 开发计划
+
+- [ ] 窗扇系统
+- [ ] 玻璃类型配置
+- [ ] 五金配件选择
+- [ ] 导出工程图
+- [ ] 材料清单生成
+
+## 贡献指南
+
+欢迎提交 Issue 和 Pull Request 来帮助改进项目。
+
+## 许可证
+
+[MIT License](LICENSE)
