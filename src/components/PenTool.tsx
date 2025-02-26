@@ -1,548 +1,659 @@
-import { useState, useRef } from 'react'
-import { useThree, ThreeEvent } from '@react-three/fiber'
-import { Text } from '@react-three/drei'
-import * as THREE from 'three'
-import { MullionConfig } from '../types/window'
+import React, { useState, useRef, useEffect } from 'react';
+import * as THREE from 'three';
+import { ThreeEvent } from '@react-three/fiber';
+import { MullionConfig, MullionSegment } from '../types/window';
 
+// 吸附类型枚举
+enum SnapType {
+  None = 'none',
+  HorizontalLine = 'horizontalLine',
+  VerticalLine = 'verticalLine',
+  Endpoint = 'endpoint',
+  Intersection = 'intersection'
+}
+
+// 获取吸附类型名称的辅助函数
+const getSnapTypeName = (type: SnapType): string => {
+  switch (type) {
+    case SnapType.None:
+      return '无吸附';
+    case SnapType.HorizontalLine:
+      return '水平线';
+    case SnapType.VerticalLine:
+      return '垂直线';
+    case SnapType.Endpoint:
+      return '端点';
+    case SnapType.Intersection:
+      return '交点';
+    default:
+      return '未知';
+  }
+};
+
+// 计算两条线的交点
+const findLinesIntersection = (
+  line1Start: {x: number, y: number}, 
+  line1End: {x: number, y: number},
+  line2Start: {x: number, y: number}, 
+  line2End: {x: number, y: number}
+): {x: number, y: number} | null => {
+  // 确保一条线是水平线，一条线是垂直线
+  const isLine1Horizontal = Math.abs(line1Start.y - line1End.y) < 0.001;
+  const isLine2Vertical = Math.abs(line2Start.x - line2End.x) < 0.001;
+  
+  if (isLine1Horizontal && isLine2Vertical) {
+    const y = line1Start.y;
+    const x = line2Start.x;
+    
+    // 检查交点是否在两条线段上
+    if (x >= Math.min(line1Start.x, line1End.x) && x <= Math.max(line1Start.x, line1End.x) &&
+        y >= Math.min(line2Start.y, line2End.y) && y <= Math.max(line2Start.y, line2End.y)) {
+      return { x, y };
+    }
+  } else if (!isLine1Horizontal && !isLine2Vertical) {
+    // 尝试反过来
+    return findLinesIntersection(line2Start, line2End, line1Start, line1End);
+  }
+  
+  return null;
+};
+
+// 吸附结果接口
 interface SnapResult {
-  point: THREE.Vector3
-  snapType: 'horizontal' | 'vertical' | 'none'
-  line?: { 
-    start: THREE.Vector3
-    end: THREE.Vector3 
-  }
-  snapLine?: {
-    start: THREE.Vector3
-    end: THREE.Vector3
-  }
+  original: {x: number, y: number}; // 原始坐标 (0-1范围)
+  snapped: {x: number, y: number};  // 吸附后坐标 (0-1范围)
+  type: SnapType;                   // 吸附类型
 }
 
+// 组件属性接口
 interface PenToolProps {
-  width: number      // 毫米
-  height: number     // 毫米
-  depth: number      // 毫米
-  config: MullionConfig
-  onAddMullion: (start: THREE.Vector3, end: THREE.Vector3) => void
+  config: MullionConfig;
+  onMullionAdd: (
+    startPoint: {x: number, y: number}, 
+    endPoint: {x: number, y: number}
+  ) => void;
+  dimensions: {
+    width: number,  // 窗宽 (mm)
+    height: number  // 窗高 (mm)
+  };
 }
 
-export const PenTool = ({ 
-  width, 
-  height, 
-  depth, 
-  config,
-  onAddMullion 
-}: PenToolProps) => {
-  // 转换为米
-  const meterWidth = width / 1000
-  const meterHeight = height / 1000
-  const meterDepth = depth / 1000
-
+const PenTool: React.FC<PenToolProps> = ({ config, onMullionAdd, dimensions }) => {
+  // 将尺寸从毫米转换为米
+  const meterWidth = dimensions.width / 1000;
+  const meterHeight = dimensions.height / 1000;
+  
   // 状态管理
-  const [startPoint, setStartPoint] = useState<THREE.Vector3 | null>(null)
-  const [previewPoint, setPreviewPoint] = useState<THREE.Vector3 | null>(null)
-  const [snapResult, setSnapResult] = useState<SnapResult | null>(null)
-  const [isDrawing, setIsDrawing] = useState(false)
-
-  // Three.js 相关
-  const { camera } = useThree()
-
-  // 坐标转换辅助函数
-  const transformToLocalSpace = (worldPoint: THREE.Vector3): THREE.Vector3 => {
-    const windowCenter = new THREE.Vector3(0, meterHeight/2, 0)
-    const localPoint = worldPoint.clone().sub(windowCenter)
+  const [isDrawing, setIsDrawing] = useState(false);
+  const [startPoint, setStartPoint] = useState<THREE.Vector3 | null>(null);
+  const [previewPoint, setPreviewPoint] = useState<THREE.Vector3 | null>(null);
+  const [snapResult, setSnapResult] = useState<SnapResult | null>(null);
+  const [isWindowInitialized, setIsWindowInitialized] = useState(false);
+  
+  // 引用
+  const mousePosRef = useRef<THREE.Vector3 | null>(null);
+  
+  // 派生状态
+  const drawState = isDrawing ? 'started' : 'idle';
+  
+  // 初始化窗口
+  useEffect(() => {
+    setIsWindowInitialized(true);
+    return () => setIsWindowInitialized(false);
+  }, []);
+  
+  // 跟踪鼠标位置
+  useEffect(() => {
+    const handleGlobalMouseMove = (e: MouseEvent) => {
+      // 这里我们只是记录鼠标位置，实际吸附逻辑在 handlePointerMove 中处理
+      if (mousePosRef.current) {
+        // 更新 z 坐标不变
+        const z = mousePosRef.current.z;
+        mousePosRef.current.set(
+          mousePosRef.current.x,
+          mousePosRef.current.y,
+          z
+        );
+      }
+    };
     
-    // 确保 z 坐标为 0
-    localPoint.z = 0
+    window.addEventListener('mousemove', handleGlobalMouseMove);
+    return () => window.removeEventListener('mousemove', handleGlobalMouseMove);
+  }, []);
+  
+  // 将场景坐标转换为窗口的本地坐标系（0-1范围）
+  const transformToLocalSpace = (position: THREE.Vector3): {x: number, y: number} => {
+    // 计算相对于窗口左下角的坐标（0-1范围）
+    console.group('【坐标转换】场景坐标 → 窗口本地坐标');
+    console.log('原始场景坐标:', {
+      x: position.x.toFixed(4) + ' m',
+      y: position.y.toFixed(4) + ' m',
+      z: position.z.toFixed(4) + ' m'
+    });
     
-    console.log('Coordinate transformation:', {
-      world: {
-        x: (worldPoint.x * 1000).toFixed(1),
-        y: (worldPoint.y * 1000).toFixed(1),
-        z: (worldPoint.z * 1000).toFixed(1)
-      },
-      local: {
-        x: (localPoint.x * 1000).toFixed(1),
-        y: (localPoint.y * 1000).toFixed(1),
-        z: (localPoint.z * 1000).toFixed(1)
-      }
-    })
+    // 从场景坐标转换到窗口本地坐标系统（基于窗口左下角）
+    const localX = (position.x + meterWidth / 2) / meterWidth;
+    const localY = position.y / meterHeight;
     
-    return localPoint
-  }
-
-  // 检查点是否在窗框范围内
-  const isPointInBounds = (point: THREE.Vector3): boolean => {
-    const halfWidth = meterWidth / 2
-    const halfHeight = meterHeight / 2
-    return (
-      point.x >= -halfWidth &&
-      point.x <= halfWidth &&
-      point.y >= -halfHeight &&
-      point.y <= halfHeight
-    )
-  }
-
-  // 判断点是否在线段上
-  const isPointOnLine = (point: THREE.Vector3, line: { start: THREE.Vector3, end: THREE.Vector3 }): boolean => {
-    const { start, end } = line
-    // 对于水平线
-    if (Math.abs(start.y - end.y) < 0.001) {
-      return Math.abs(point.y - start.y) < 0.001 &&
-             point.x >= Math.min(start.x, end.x) &&
-             point.x <= Math.max(start.x, end.x)
-    }
-    // 对于垂直线
-    if (Math.abs(start.x - end.x) < 0.001) {
-      return Math.abs(point.x - start.x) < 0.001 &&
-             point.y >= Math.min(start.y, end.y) &&
-             point.y <= Math.max(start.y, end.y)
-    }
-    return false
-  }
-
-  // 判断两个线段是否相同
-  const isSameLine = (line1: { start: THREE.Vector3, end: THREE.Vector3 }, 
-                     line2: { start: THREE.Vector3, end: THREE.Vector3 }): boolean => {
-    // 对于水平线
-    if (Math.abs(line1.start.y - line1.end.y) < 0.001 &&
-        Math.abs(line2.start.y - line2.end.y) < 0.001) {
-      return Math.abs(line1.start.y - line2.start.y) < 0.001
-    }
-    // 对于垂直线
-    if (Math.abs(line1.start.x - line1.end.x) < 0.001 &&
-        Math.abs(line2.start.x - line2.end.x) < 0.001) {
-      return Math.abs(line1.start.x - line2.start.x) < 0.001
-    }
-    return false
-  }
-
-  // 处理鼠标移动
-  const handlePointerMove = (event: ThreeEvent<PointerEvent>) => {
-    // 1. 正确计算 NDC 坐标
-    const mouse = new THREE.Vector2(
-      (event.clientX / window.innerWidth) * 2 - 1,
-      -(event.clientY / window.innerHeight) * 2 + 1
-    )
-
-    console.log('Mouse coordinates:', {
-      screen: { x: event.clientX, y: event.clientY },
-      window: { width: window.innerWidth, height: window.innerHeight },
-      ndc: { x: mouse.x.toFixed(3), y: mouse.y.toFixed(3) }
-    })
-
-    // 2. 创建射线
-    const raycaster = new THREE.Raycaster()
-    raycaster.setFromCamera(mouse, camera)
-
-    // 3. 创建一个与窗户平面平行的平面
-    const plane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0)
-    const intersection = new THREE.Vector3()
-    const intersectionDistance = raycaster.ray.intersectPlane(plane, intersection)
-
-    if (intersection) {
-      // 4. 转换到局部坐标系
-      const localPoint = transformToLocalSpace(intersection)
-
-      console.log('Ray intersection:', {
-        raw: {
-          x: (intersection.x * 1000).toFixed(1),
-          y: (intersection.y * 1000).toFixed(1),
-          z: (intersection.z * 1000).toFixed(1)
-        },
-        transformed: {
-          x: (localPoint.x * 1000).toFixed(1),
-          y: (localPoint.y * 1000).toFixed(1),
-          z: (localPoint.z * 1000).toFixed(1)
-        },
-        camera: {
-          position: camera.position.toArray().map(v => Number(v).toFixed(2)),
-          rotation: camera.rotation.toArray().map(v => Number(v).toFixed(2))
-        }
-      })
-
-      // 5. 添加边界检查
-      if (isPointInBounds(localPoint)) {
-        const result = snapToNearestLine(localPoint)
-        setPreviewPoint(result.point)
-        setSnapResult(result)
-        
-        console.log('Snap result:', {
-          local: {
-            x: (localPoint.x * 1000).toFixed(1),
-            y: (localPoint.y * 1000).toFixed(1)
-          },
-          snap: {
-            x: (result.point.x * 1000).toFixed(1),
-            y: (result.point.y * 1000).toFixed(1)
-          },
-          type: result.snapType
-        })
-      }
-    }
-  }
-
-  // 获取最近的中挺或边框线
-  const snapToNearestLine = (point: THREE.Vector3): SnapResult => {
-    const snapThreshold = 0.08 // 8厘米的吸附范围
-    const originalPoint = point.clone()
-
-    // 添加调试信息
-    console.log('Snap calculation:', {
-      input: {
-        x: (originalPoint.x * 1000).toFixed(1),
-        y: (originalPoint.y * 1000).toFixed(1)
-      },
-      bounds: {
-        width: meterWidth,
-        height: meterHeight
-      },
-      threshold: snapThreshold * 1000
-    })
-
-    // 收集所有可能的吸附点
-    const snapPoints: Array<{
-      point: THREE.Vector3,
-      distance: number,
-      type: 'horizontal' | 'vertical',
-      line: { start: THREE.Vector3, end: THREE.Vector3 }
-    }> = []
-
-    // 检查水平线（包括外框和中挺）
-    const horizontalPositions = [
-      -meterHeight/2, // 下边框
-      meterHeight/2,  // 上边框
-      ...config.horizontalMullions.map(pos => -meterHeight/2 + pos * meterHeight)
-    ]
-
-    // 检查垂直线（包括外框和中挺）
-    const verticalPositions = [
-      -meterWidth/2,  // 左边框
-      meterWidth/2,   // 右边框
-      ...config.verticalMullions.map(pos => -meterWidth/2 + pos * meterWidth)
-    ]
-
-    // 计算到水平线的距离
-    for (const y of horizontalPositions) {
-      const dist = Math.abs(point.y - y)
-      if (dist < snapThreshold) {
-        const line = {
-          start: new THREE.Vector3(-meterWidth/2, y, 0),
-          end: new THREE.Vector3(meterWidth/2, y, 0)
-        }
-
-        // 如果有起点，检查是否在同一线段上
-        if (startPoint && snapResult?.line && isSameLine(line, snapResult.line)) {
-          continue // 跳过同一线段
-        }
-
-        // 在水平线上创建吸附点，x 坐标使用原始点的 x 坐标
-        const snapPoint = new THREE.Vector3(
-          Math.max(-meterWidth/2, Math.min(meterWidth/2, originalPoint.x)),
-          y,
-          0
-        )
-        snapPoints.push({
-          point: snapPoint,
-          distance: dist,
-          type: 'horizontal',
-          line
-        })
-      }
-    }
-
-    // 计算到垂直线的距离
-    for (const x of verticalPositions) {
-      const dist = Math.abs(point.x - x)
-      if (dist < snapThreshold) {
-        const line = {
-          start: new THREE.Vector3(x, -meterHeight/2, 0),
-          end: new THREE.Vector3(x, meterHeight/2, 0)
-        }
-
-        // 如果有起点，检查是否在同一线段上
-        if (startPoint && snapResult?.line && isSameLine(line, snapResult.line)) {
-          continue // 跳过同一线段
-        }
-
-        // 在垂直线上创建吸附点，y 坐标使用原始点的 y 坐标
-        const snapPoint = new THREE.Vector3(
-          x,
-          Math.max(-meterHeight/2, Math.min(meterHeight/2, originalPoint.y)),
-          0
-        )
-        snapPoints.push({
-          point: snapPoint,
-          distance: dist,
-          type: 'vertical',
-          line
-        })
-      }
-    }
-
-    // 如果有起点，需要考虑与起点的对齐
-    if (startPoint && snapResult?.line) {
-      const dx = Math.abs(point.x - startPoint.x)
-      const dy = Math.abs(point.y - startPoint.y)
-      
-      // 如果与起点的距离小于阈值，优先考虑对齐
-      if (dx < snapThreshold || dy < snapThreshold) {
-        // 确定对齐方向
-        const isVerticalAlignment = dx < dy
-
-        // 找到最近的垂直或水平线
-        const positions = isVerticalAlignment ? verticalPositions : horizontalPositions
-        let nearestLinePos = null
-        let minDist = Infinity
-
-        positions.forEach(pos => {
-          const currentLine = {
-            start: new THREE.Vector3(
-              isVerticalAlignment ? pos : -meterWidth/2,
-              isVerticalAlignment ? -meterHeight/2 : pos,
-              0
-            ),
-            end: new THREE.Vector3(
-              isVerticalAlignment ? pos : meterWidth/2,
-              isVerticalAlignment ? meterHeight/2 : pos,
-              0
-            )
-          }
-
-          // 跳过与起点相同的线段
-          if (snapResult.line && isSameLine(currentLine, snapResult.line)) {
-            return
-          }
-
-          const dist = isVerticalAlignment 
-            ? Math.abs(point.x - pos)
-            : Math.abs(point.y - pos)
-          if (dist < minDist) {
-            minDist = dist
-            nearestLinePos = pos
-          }
-        })
-
-        // 只有找到有效的线段时才返回对齐点
-        if (nearestLinePos !== null) {
-          const alignedPoint = new THREE.Vector3(
-            isVerticalAlignment ? nearestLinePos : startPoint.x,
-            isVerticalAlignment ? startPoint.y : nearestLinePos,
-            0
-          )
-
-          return {
-            point: alignedPoint,
-            snapType: isVerticalAlignment ? 'vertical' : 'horizontal',
-            line: {
-              start: new THREE.Vector3(
-                isVerticalAlignment ? nearestLinePos : -meterWidth/2,
-                isVerticalAlignment ? -meterHeight/2 : nearestLinePos,
-                0
-              ),
-              end: new THREE.Vector3(
-                isVerticalAlignment ? nearestLinePos : meterWidth/2,
-                isVerticalAlignment ? meterHeight/2 : nearestLinePos,
-                0
-              )
-            }
-          }
-        }
-      }
-    }
-
-    // 如果有吸附点，选择最近的
-    if (snapPoints.length > 0) {
-      const nearestSnap = snapPoints.reduce((nearest, current) => 
-        current.distance < nearest.distance ? current : nearest
-      )
-      return {
-        point: nearestSnap.point,
-        snapType: nearestSnap.type,
-        snapLine: nearestSnap.line
-      }
-    }
-
-    // 如果没有找到吸附点，返回 null
+    const result = {
+      x: Math.max(0, Math.min(1, localX)),
+      y: Math.max(0, Math.min(1, localY))
+    };
+    
+    console.log('窗口本地坐标(0-1范围):', {
+      x: result.x.toFixed(4),
+      y: result.y.toFixed(4)
+    });
+    console.groupEnd();
+    
+    return result;
+  };
+  
+  // 将本地坐标转换回场景坐标
+  const transformToSceneSpace = (position: {x: number, y: number}): {x: number, y: number} => {
     return {
-      point: originalPoint,
-      snapType: 'none'
-    }
-  }
-
-  // 处理点击
-  const handleClick = (event: ThreeEvent<MouseEvent>) => {
-    event.stopPropagation()
+      x: position.x * meterWidth - meterWidth / 2,
+      y: position.y * meterHeight
+    };
+  };
+  
+  // 计算到最近线段的吸附
+  const snapToNearestLine = (position: THREE.Vector3): SnapResult => {
+    console.group('【吸附检测】计算最近线段吸附点');
+    console.log('检测吸附点:', {
+      x: position.x.toFixed(4) + ' m',
+      y: position.y.toFixed(4) + ' m',
+      z: position.z.toFixed(4) + ' m'
+    });
     
-    // 只有当有预览点且在有效的吸附状态时才允许点击
-    if (!previewPoint || !snapResult || snapResult.snapType === 'none') return
-
-    if (!startPoint) {
-      // 设置起点（必须在有效的吸附线上）
-      setStartPoint(previewPoint.clone())
-      setIsDrawing(true)
-    } else {
-      // 完成绘制（终点也必须在有效的吸附线上）
-      onAddMullion(startPoint, previewPoint)
-      setStartPoint(null)
-      setPreviewPoint(null)
-      setSnapResult(null)
-      setIsDrawing(false)
+    const local = transformToLocalSpace(position);
+    
+    // 定义窗户边框
+    const frameLines = [
+      // 左边框 (x = 0)
+      {start: {x: 0, y: 0}, end: {x: 0, y: 1}, isVertical: true},
+      // 右边框 (x = 1)
+      {start: {x: 1, y: 0}, end: {x: 1, y: 1}, isVertical: true},
+      // 底边框 (y = 0)
+      {start: {x: 0, y: 0}, end: {x: 1, y: 0}, isVertical: false},
+      // 顶边框 (y = 1)
+      {start: {x: 0, y: 1}, end: {x: 1, y: 1}, isVertical: false}
+    ];
+    
+    // 获取水平和垂直中挺线段
+    const horizontalSegments = config.horizontalSegments || [];
+    const verticalSegments = config.verticalSegments || [];
+    
+    // 转换中挺段为线条
+    const mullionLines = [
+      // 水平中挺线
+      ...horizontalSegments.map((segment: MullionSegment) => ({
+        start: {x: segment.start, y: segment.position},
+        end: {x: segment.end, y: segment.position},
+        isVertical: false
+      })),
+      // 垂直中挺线
+      ...verticalSegments.map((segment: MullionSegment) => ({
+        start: {x: segment.position, y: segment.start},
+        end: {x: segment.position, y: segment.end},
+        isVertical: true
+      }))
+    ];
+    
+    // 所有需要检查的线
+    const allLines = [...frameLines, ...mullionLines];
+    
+    // 寻找最近的垂直线
+    const nearestVerticalLine = allLines
+      .filter(line => line.isVertical)
+      .map(line => {
+        const distance = Math.abs(local.x - line.start.x);
+        return { line, distance };
+      })
+      .sort((a, b) => a.distance - b.distance)[0];
+    
+    // 寻找最近的水平线
+    const nearestHorizontalLine = allLines
+      .filter(line => !line.isVertical)
+      .map(line => {
+        const distance = Math.abs(local.y - line.start.y);
+        return { line, distance };
+      })
+      .sort((a, b) => a.distance - b.distance)[0];
+    
+    // 确定吸附距离阈值（以米为单位，转换为相对距离）
+    const snapThresholdMeters = 0.05; // 5厘米
+    const snapThresholdX = snapThresholdMeters / meterWidth;
+    const snapThresholdY = snapThresholdMeters / meterHeight;
+    
+    // 潜在的吸附点及其类型
+    const snapPoints: {point: {x: number, y: number}, type: SnapType, distance: number}[] = [];
+    
+    // 检查垂直线吸附
+    if (nearestVerticalLine && nearestVerticalLine.distance < snapThresholdX) {
+      // 确保点在线段范围内
+      const line = nearestVerticalLine.line;
+      const y = Math.max(line.start.y, Math.min(line.end.y, local.y));
+      
+      snapPoints.push({
+        point: {x: line.start.x, y},
+        type: SnapType.VerticalLine,
+        distance: nearestVerticalLine.distance
+      });
+      
+      // 检查端点吸附
+      const startPointDistance = Math.sqrt(
+        Math.pow(local.x - line.start.x, 2) + 
+        Math.pow(local.y - line.start.y, 2)
+      );
+      
+      const endPointDistance = Math.sqrt(
+        Math.pow(local.x - line.end.x, 2) + 
+        Math.pow(local.y - line.end.y, 2)
+      );
+      
+      if (startPointDistance < Math.max(snapThresholdX, snapThresholdY)) {
+        snapPoints.push({
+          point: line.start,
+          type: SnapType.Endpoint,
+          distance: startPointDistance
+        });
+      }
+      
+      if (endPointDistance < Math.max(snapThresholdX, snapThresholdY)) {
+        snapPoints.push({
+          point: line.end,
+          type: SnapType.Endpoint,
+          distance: endPointDistance
+        });
+      }
     }
-  }
-
-  // 渲染坐标轴
-  const renderCoordinateAxes = () => {
-    const axisLength = 0.5 // 坐标轴长度（米）
-    const axisWidth = 2 // 线宽
-
-    return (
-      <group position={[-meterWidth/2, -meterHeight/2, 0]}>
-        {/* X轴 - 红色 */}
-        <line>
-          <bufferGeometry>
-            <float32BufferAttribute
-              attach="attributes-position"
-              args={[new Float32Array([0, 0, 0, axisLength, 0, 0]), 3]}
-            />
-          </bufferGeometry>
-          <lineBasicMaterial color="red" linewidth={axisWidth} />
-        </line>
-        <Text
-          position={[axisLength + 0.05, 0, 0]}
-          fontSize={0.05}
-          color="red"
-        >
-          X
-        </Text>
-
-        {/* Y轴 - 绿色 */}
-        <line>
-          <bufferGeometry>
-            <float32BufferAttribute
-              attach="attributes-position"
-              args={[new Float32Array([0, 0, 0, 0, axisLength, 0]), 3]}
-            />
-          </bufferGeometry>
-          <lineBasicMaterial color="green" linewidth={axisWidth} />
-        </line>
-        <Text
-          position={[0, axisLength + 0.05, 0]}
-          fontSize={0.05}
-          color="green"
-        >
-          Y
-        </Text>
-
-        {/* Z轴 - 蓝色 */}
-        <line>
-          <bufferGeometry>
-            <float32BufferAttribute
-              attach="attributes-position"
-              args={[new Float32Array([0, 0, 0, 0, 0, axisLength]), 3]}
-            />
-          </bufferGeometry>
-          <lineBasicMaterial color="blue" linewidth={axisWidth} />
-        </line>
-        <Text
-          position={[0, 0, axisLength + 0.05]}
-          fontSize={0.05}
-          color="blue"
-        >
-          Z
-        </Text>
-
-        {/* 当前坐标值显示 */}
-        {previewPoint && (
-          <group position={[0, -0.1, 0]}>
-            <Text
-              fontSize={0.04}
-              color="black"
-              anchorX="left"
-              anchorY="top"
-            >
-              {`X: ${(previewPoint.x * 1000).toFixed(1)}mm\nY: ${(previewPoint.y * 1000).toFixed(1)}mm\nZ: ${(previewPoint.z * 1000).toFixed(1)}mm`}
-            </Text>
-          </group>
-        )}
-      </group>
-    )
-  }
-
+    
+    // 检查水平线吸附
+    if (nearestHorizontalLine && nearestHorizontalLine.distance < snapThresholdY) {
+      // 确保点在线段范围内
+      const line = nearestHorizontalLine.line;
+      const x = Math.max(line.start.x, Math.min(line.end.x, local.x));
+      
+      snapPoints.push({
+        point: {x, y: line.start.y},
+        type: SnapType.HorizontalLine,
+        distance: nearestHorizontalLine.distance
+      });
+      
+      // 检查端点吸附
+      const startPointDistance = Math.sqrt(
+        Math.pow(local.x - line.start.x, 2) + 
+        Math.pow(local.y - line.start.y, 2)
+      );
+      
+      const endPointDistance = Math.sqrt(
+        Math.pow(local.x - line.end.x, 2) + 
+        Math.pow(local.y - line.end.y, 2)
+      );
+      
+      if (startPointDistance < Math.max(snapThresholdX, snapThresholdY)) {
+        snapPoints.push({
+          point: line.start,
+          type: SnapType.Endpoint,
+          distance: startPointDistance
+        });
+      }
+      
+      if (endPointDistance < Math.max(snapThresholdX, snapThresholdY)) {
+        snapPoints.push({
+          point: line.end,
+          type: SnapType.Endpoint,
+          distance: endPointDistance
+        });
+      }
+    }
+    
+    // 如果有垂直和水平线的吸附点，检查交点
+    if (nearestVerticalLine && nearestVerticalLine.distance < snapThresholdX &&
+        nearestHorizontalLine && nearestHorizontalLine.distance < snapThresholdY) {
+      
+      const vLine = nearestVerticalLine.line;
+      const hLine = nearestHorizontalLine.line;
+      
+      // 检查交点是否在两条线的范围内
+      if (vLine.start.x >= hLine.start.x && vLine.start.x <= hLine.end.x &&
+          hLine.start.y >= vLine.start.y && hLine.start.y <= vLine.end.y) {
+        
+        const intersectionPoint = {
+          x: vLine.start.x,
+          y: hLine.start.y
+        };
+        
+        const intersectionDistance = Math.sqrt(
+          Math.pow(local.x - intersectionPoint.x, 2) + 
+          Math.pow(local.y - intersectionPoint.y, 2)
+        );
+        
+        snapPoints.push({
+          point: intersectionPoint,
+          type: SnapType.Intersection,
+          distance: intersectionDistance
+        });
+      }
+    }
+    
+    // 如果没有吸附点，返回无吸附
+    if (snapPoints.length === 0) {
+      console.log('🔍 无吸附点');
+      console.groupEnd();
+      return { 
+        original: local, 
+        snapped: local, 
+        type: SnapType.None 
+      };
+    }
+    
+    // 找到最近的吸附点
+    const nearestSnapPoint = snapPoints.sort((a, b) => a.distance - b.distance)[0];
+    
+    // 将吸附点的相对坐标转换回场景坐标
+    const snappedScenePosition = transformToSceneSpace(nearestSnapPoint.point);
+    
+    console.log('📌 找到吸附点:', {
+      类型: getSnapTypeName(nearestSnapPoint.type),
+      本地坐标: {
+        x: nearestSnapPoint.point.x.toFixed(4), 
+        y: nearestSnapPoint.point.y.toFixed(4)
+      },
+      场景坐标: {
+        x: snappedScenePosition.x.toFixed(4) + ' m', 
+        y: snappedScenePosition.y.toFixed(4) + ' m'
+      },
+      距离: nearestSnapPoint.distance.toFixed(4)
+    });
+    console.groupEnd();
+    
+    return {
+      original: local,
+      snapped: nearestSnapPoint.point,
+      type: nearestSnapPoint.type
+    };
+  };
+  
+  // 处理指针移动：用于实时吸附和预览
+  const handlePointerMove = (event: ThreeEvent<PointerEvent>) => {
+    // 更新鼠标位置引用
+    mousePosRef.current = event.point;
+    
+    // 如果窗户没有初始化完成就退出
+    if (!isWindowInitialized) {
+      return;
+    }
+    
+    // 获取鼠标当前位置
+    const mousePos = event.point;
+    
+    console.group('【鼠标移动】实时吸附和预览');
+    console.log('鼠标原始位置:', {
+      x: mousePos.x.toFixed(4) + ' m',
+      y: mousePos.y.toFixed(4) + ' m',
+      z: mousePos.z.toFixed(4) + ' m'
+    });
+    
+    // 计算当前位置的吸附结果
+    const currentSnapResult = snapToNearestLine(mousePos);
+    setSnapResult(currentSnapResult);
+    
+    // 如果有吸附结果，更新预览点
+    if (currentSnapResult && currentSnapResult.type !== SnapType.None) {
+      // 将本地坐标转换回场景坐标用于显示
+      const scenePos = transformToSceneSpace(currentSnapResult.snapped);
+      const previewPos = new THREE.Vector3(scenePos.x, scenePos.y, 0);
+      
+      setPreviewPoint(previewPos);
+      
+      console.log('吸附结果:', {
+        类型: getSnapTypeName(currentSnapResult.type),
+        本地坐标: {
+          x: currentSnapResult.snapped.x.toFixed(4),
+          y: currentSnapResult.snapped.y.toFixed(4)
+        },
+        场景坐标: {
+          x: previewPos.x.toFixed(4) + ' m',
+          y: previewPos.y.toFixed(4) + ' m',
+          z: previewPos.z.toFixed(4) + ' m'
+        }
+      });
+      
+      // 如果已经有起点，检查是否可以完成绘制
+      if (isDrawing && startPoint) {
+        // 检查方向和距离是否足够
+        const dx = Math.abs(startPoint.x - previewPos.x);
+        const dy = Math.abs(startPoint.y - previewPos.y);
+        
+        // 判断绘制方向
+        const isHorizontal = dy < dx;
+        const isVertical = dx < dy;
+        
+        // 最小距离阈值 (5cm)
+        const minDistanceThreshold = 0.05;
+        const hasMinimumDistance = dx > minDistanceThreshold || dy > minDistanceThreshold;
+        
+        console.log('绘制检查:', {
+          方向: isHorizontal ? '水平' : (isVertical ? '垂直' : '不确定'),
+          起点: {
+            x: startPoint.x.toFixed(4) + ' m',
+            y: startPoint.y.toFixed(4) + ' m'
+          },
+          当前终点: {
+            x: previewPos.x.toFixed(4) + ' m',
+            y: previewPos.y.toFixed(4) + ' m'
+          },
+          距离: {
+            x: dx.toFixed(4) + ' m',
+            y: dy.toFixed(4) + ' m',
+            总距离: Math.sqrt(dx*dx + dy*dy).toFixed(4) + ' m'
+          },
+          满足最小距离: hasMinimumDistance
+        });
+        
+        // 判断是否可以完成绘制
+        const canCompleteDrawing = hasMinimumDistance && (isHorizontal || isVertical);
+        
+        if (!canCompleteDrawing) {
+          console.log('❌ 不能完成绘制:', {
+            原因: !hasMinimumDistance ? '距离太小' : '方向不明确'
+          });
+        } else {
+          console.log('✅ 可以完成绘制');
+        }
+      }
+    } else {
+      // 无吸附点时，清除预览
+      setPreviewPoint(null);
+      console.log('❌ 无吸附结果');
+    }
+    
+    console.groupEnd();
+  };
+  
+  // 处理点击操作，设置起点或完成绘制
+  const handleClick = (event: ThreeEvent<MouseEvent>) => {
+    console.group('【钢笔工具】点击处理');
+    
+    if (!isWindowInitialized) {
+      console.warn('❌ 窗口尚未初始化，无法处理点击');
+      console.groupEnd();
+      return;
+    }
+    
+    if (!mousePosRef.current) {
+      console.warn('❌ 鼠标位置未初始化');
+      console.groupEnd();
+      return;
+    }
+    
+    // 获取当前鼠标位置的最近吸附点
+    const currentSnapResult = snapToNearestLine(mousePosRef.current);
+    
+    if (!currentSnapResult) {
+      console.warn('❌ 无有效吸附点');
+      console.groupEnd();
+      return;
+    }
+    
+    setSnapResult(currentSnapResult);
+    
+    // 将吸附点转换为场景坐标
+    const scenePos = transformToSceneSpace(currentSnapResult.snapped);
+    const snappedPoint = new THREE.Vector3(scenePos.x, scenePos.y, 0);
+    
+    // 根据当前绘制状态处理
+    switch (drawState) {
+      case 'idle':
+        // 设置起点
+        if (currentSnapResult.type !== SnapType.None) {
+          setStartPoint(snappedPoint);
+          setIsDrawing(true);
+          console.log('✅ 设置绘制起点:', {
+            x: snappedPoint.x.toFixed(4) + ' m',
+            y: snappedPoint.y.toFixed(4) + ' m',
+            吸附类型: getSnapTypeName(currentSnapResult.type)
+          });
+        } else {
+          console.log('❌ 无有效吸附点，无法设置起点');
+        }
+        break;
+        
+      case 'started':
+        // 完成绘制
+        if (currentSnapResult.type !== SnapType.None && startPoint) {
+          console.log('✅ 完成绘制:', {
+            起点: {
+              x: startPoint.x.toFixed(4) + ' m', 
+              y: startPoint.y.toFixed(4) + ' m'
+            },
+            终点: {
+              x: snappedPoint.x.toFixed(4) + ' m', 
+              y: snappedPoint.y.toFixed(4) + ' m'
+            },
+            吸附类型: getSnapTypeName(currentSnapResult.type)
+          });
+          
+          // 转换为本地坐标 (0-1范围) 用于添加中挺
+          const startLocal = transformToLocalSpace(startPoint);
+          const endLocal = currentSnapResult.snapped;
+          
+          // 添加中挺
+          onMullionAdd(startLocal, endLocal);
+          
+          // 重置绘制状态
+          setStartPoint(null);
+          setIsDrawing(false);
+        } else {
+          console.log('❌ 无法完成绘制:', {
+            有起点: !!startPoint,
+            有效吸附: currentSnapResult.type !== SnapType.None
+          });
+        }
+        break;
+    }
+    
+    console.groupEnd();
+  };
+  
+  // 添加中挺的底层实现
+  const addMullion = (start: {x: number, y: number}, end: {x: number, y: number}) => {
+    // 检查中挺方向
+    const dx = Math.abs(end.x - start.x);
+    const dy = Math.abs(end.y - start.y);
+    
+    if (dx > dy) {
+      // 水平中挺 (y坐标相同)
+      const position = start.y; // 位置是y坐标 (0-1范围)
+      const startX = Math.min(start.x, end.x);
+      const endX = Math.max(start.x, end.x);
+      
+      console.log('添加水平中挺:', {
+        position: position.toFixed(4),
+        start: startX.toFixed(4),
+        end: endX.toFixed(4)
+      });
+      
+      onMullionAdd(
+        {x: startX, y: position},
+        {x: endX, y: position}
+      );
+    } else {
+      // 垂直中挺 (x坐标相同)
+      const position = start.x; // 位置是x坐标 (0-1范围)
+      const startY = Math.min(start.y, end.y);
+      const endY = Math.max(start.y, end.y);
+      
+      console.log('添加垂直中挺:', {
+        position: position.toFixed(4),
+        start: startY.toFixed(4),
+        end: endY.toFixed(4)
+      });
+      
+      onMullionAdd(
+        {x: position, y: startY},
+        {x: position, y: endY}
+      );
+    }
+  };
+  
+  // 渲染钢笔工具UI
   return (
     <group>
-      {/* 透明平面用于射线检测 */}
-      <mesh
+      {/* 捕获鼠标事件 */}
+      <mesh 
+        position={[0, 0, 0]}
+        scale={[meterWidth, meterHeight, 1]}
         onPointerMove={handlePointerMove}
         onClick={handleClick}
         visible={false}
       >
-        <planeGeometry args={[meterWidth * 1.5, meterHeight * 1.5]} />
+        <planeGeometry />
         <meshBasicMaterial transparent opacity={0} />
       </mesh>
-
+      
+      {/* 当前吸附点标记 */}
+      {previewPoint && snapResult && snapResult.type !== SnapType.None && (
+        <group position={previewPoint}>
+          {/* 吸附点指示器 */}
+          <mesh>
+            <sphereGeometry args={[0.01, 32, 32]} />
+            <meshBasicMaterial color={isDrawing ? "#4CAF50" : "#2196F3"} />
+          </mesh>
+        </group>
+      )}
+      
       {/* 起点标记 */}
       {startPoint && (
-        <mesh position={startPoint}>
-          <sphereGeometry args={[0.02]} />
-          <meshBasicMaterial color="#1890ff" />
-        </mesh>
+        <group position={startPoint}>
+          <mesh>
+            <sphereGeometry args={[0.015, 32, 32]} />
+            <meshBasicMaterial color="#FF9800" />
+          </mesh>
+        </group>
       )}
-
-      {/* 预览点标记 */}
-      {previewPoint && (
-        <mesh position={previewPoint}>
-          <sphereGeometry args={[0.02]} />
-          <meshBasicMaterial color={isDrawing ? "#52c41a" : "#1890ff"} />
-        </mesh>
-      )}
-
-      {/* 预览线 */}
-      {startPoint && previewPoint && (
+      
+      {/* 预览线 - 连接起点和当前鼠标位置 */}
+      {startPoint && previewPoint && snapResult && snapResult.type !== SnapType.None && (
         <line>
-          <bufferGeometry
-            attach="geometry"
-            attributes={{
-              position: new THREE.BufferAttribute(
-                new Float32Array([
-                  startPoint.x, startPoint.y, startPoint.z,
-                  previewPoint.x, previewPoint.y, previewPoint.z
-                ]), 3
-              )
-            }}
-          />
-          <lineBasicMaterial attach="material" color="#1890ff" linewidth={2} />
+          <bufferGeometry>
+            <bufferAttribute
+              attach="attributes-position"
+              count={2}
+              array={new Float32Array([
+                startPoint.x, startPoint.y, startPoint.z,
+                previewPoint.x, previewPoint.y, previewPoint.z
+              ])}
+              itemSize={3}
+            />
+          </bufferGeometry>
+          <lineBasicMaterial color="#4CAF50" linewidth={2} />
         </line>
       )}
-
-      {/* 吸附辅助线 */}
-      {snapResult?.snapLine && (
-        <line>
-          <bufferGeometry
-            attach="geometry"
-            attributes={{
-              position: new THREE.BufferAttribute(
-                new Float32Array([
-                  snapResult.snapLine.start.x, snapResult.snapLine.start.y, snapResult.snapLine.start.z,
-                  snapResult.snapLine.end.x, snapResult.snapLine.end.y, snapResult.snapLine.end.z
-                ]), 3
-              )
-            }}
-          />
-          <lineDashedMaterial 
-            attach="material" 
-            color="#ff4d4f" 
-            opacity={0.5} 
-            transparent 
-            linewidth={1}
-            scale={0.1}  // 控制虚线的整体缩放
-            dashSize={0.1}  // 虚线段的长度
-            gapSize={0.05}  // 虚线段之间的间隔
-          />
-        </line>
-      )}
-
-      {/* 添加坐标轴显示 */}
-      {renderCoordinateAxes()}
     </group>
-  )
-} 
+  );
+};
+
+export default PenTool; 

@@ -1,5 +1,4 @@
-import { Canvas } from '@react-three/fiber'
-import { OrbitControls, Grid, GizmoHelper, GizmoViewport, Text } from '@react-three/drei'
+import { OrbitControls, Grid, Text } from '@react-three/drei'
 import { Suspense, ReactNode, useEffect, useRef, useState } from 'react'
 import { ErrorBoundary } from './ErrorBoundary'
 import * as THREE from 'three'
@@ -7,6 +6,7 @@ import * as THREE from 'three'
 interface Scene3DProps {
   children?: ReactNode
   isPenToolActive?: boolean
+  isDraggingMullion?: boolean
   width?: number      // 毫米
   height?: number     // 毫米
   depth?: number      // 毫米
@@ -25,10 +25,10 @@ const AxisHelper = ({ width = 2000, height = 1500, depth = 100 }) => {
   const meterHeight = height / 1000
   const meterDepth = depth / 1000
   
-  // 窗户中心点在(0, meterHeight/2, 0)，所以左下角在(-meterWidth/2, 0, meterDepth/2)
-  const originX = -meterWidth/2
+  // 在统一坐标系中，窗户左下角为原点(0,0,0)
+  const originX = 0
   const originY = 0
-  const originZ = meterDepth/2
+  const originZ = 0
 
   // 生成刻度线顶点
   const generateTicks = (axisLength: number, direction: 'x' | 'y' | 'z') => {
@@ -179,7 +179,7 @@ const AxisHelper = ({ width = 2000, height = 1500, depth = 100 }) => {
   )
 }
 
-export const Scene3D = ({ children, isPenToolActive, width = 2000, height = 1500, depth = 100 }: Scene3DProps) => {
+export const Scene3D = ({ children, isPenToolActive, isDraggingMullion = false, width = 2000, height = 1500, depth = 100 }: Scene3DProps) => {
   const controlsRef = useRef<any>(null)
   const [isSpacePressed, setIsSpacePressed] = useState(false)
 
@@ -209,7 +209,7 @@ export const Scene3D = ({ children, isPenToolActive, width = 2000, height = 1500
       if (e.code === 'Space') {
         e.preventDefault()
         setIsSpacePressed(false)
-        if (controlsRef.current && !isPenToolActive) {
+        if (controlsRef.current && !isPenToolActive && !isDraggingMullion) {
           controlsRef.current.enablePan = false
           controlsRef.current.enableRotate = true
           // 恢复默认鼠标按键设置
@@ -229,7 +229,7 @@ export const Scene3D = ({ children, isPenToolActive, width = 2000, height = 1500
       window.removeEventListener('keydown', handleKeyDown)
       window.removeEventListener('keyup', handleKeyUp)
     }
-  }, [isPenToolActive])
+  }, [isPenToolActive, isDraggingMullion])
 
   // 切换到 Y 视图并设置控制器状态
   useEffect(() => {
@@ -253,6 +253,34 @@ export const Scene3D = ({ children, isPenToolActive, width = 2000, height = 1500
         MIDDLE: THREE.MOUSE.DOLLY,
         RIGHT: THREE.MOUSE.ROTATE
       }
+      
+      console.log('%c【视角控制】切换到钢笔工具模式', 'background-color: #e0f7fa; color: #006064; font-weight: bold', {
+        视角: '俯视图',
+        旋转: '禁用',
+        平移: '启用（左键）',
+        缩放: '启用（滚轮）',
+        距离范围: '1-10米'
+      });
+    } else if (isDraggingMullion) {
+      // 拖动中挺时禁用旋转
+      controls.enableRotate = false
+      controls.enablePan = true
+      controls.enableZoom = true
+      controls.minDistance = 2
+      controls.maxDistance = 20
+      // 设置鼠标按键，拖动中挺时禁用左键旋转
+      controls.mouseButtons = {
+        LEFT: THREE.MOUSE.PAN,
+        MIDDLE: THREE.MOUSE.DOLLY,
+        RIGHT: THREE.MOUSE.PAN
+      }
+      
+      console.log('%c【视角控制】切换到中挺拖动模式', 'background-color: #fff3e0; color: #e65100; font-weight: bold', {
+        旋转: '禁用',
+        平移: '启用（左键和右键）',
+        缩放: '启用（滚轮）',
+        距离范围: '2-20米'
+      });
     } else {
       // 正常模式
       controls.enableRotate = !isSpacePressed
@@ -270,81 +298,107 @@ export const Scene3D = ({ children, isPenToolActive, width = 2000, height = 1500
         MIDDLE: THREE.MOUSE.DOLLY,
         RIGHT: THREE.MOUSE.PAN
       }
+      
+      console.log('%c【视角控制】切换到正常模式', 'background-color: #f1f8e9; color: #33691e; font-weight: bold', {
+        空格键状态: isSpacePressed ? '按下' : '释放',
+        旋转: isSpacePressed ? '禁用' : '启用（左键）',
+        平移: isSpacePressed ? '启用（左键）' : '启用（右键）',
+        缩放: '启用（滚轮）',
+        距离范围: '2-20米'
+      });
     }
     
     controls.update()
-  }, [isPenToolActive, isSpacePressed])
+  }, [isPenToolActive, isSpacePressed, isDraggingMullion])
+
+  // 添加一个监听器来记录视角变化
+  useEffect(() => {
+    if (!controlsRef.current) return
+    
+    const controls = controlsRef.current
+    
+    // 为简化输出，使用节流记录视角变化
+    const throttledLog = throttle(() => {
+      // 计算当前摄像机角度
+      const azimuthalAngle = controls.getAzimuthalAngle() * (180 / Math.PI)
+      const polarAngle = controls.getPolarAngle() * (180 / Math.PI)
+      
+      // console.log('%c【视角变化】', 'color: #78909c', {
+      //   水平角度: azimuthalAngle.toFixed(1) + '°',
+      //   垂直角度: polarAngle.toFixed(1) + '°',
+      //   距离: controls.getDistance().toFixed(2) * 1000 + 'mm'
+      // });
+    }, 500) // 每500毫秒最多记录一次
+    
+    // 添加控制器变化事件监听
+    controls.addEventListener('change', throttledLog)
+    
+    return () => {
+      controls.removeEventListener('change', throttledLog)
+    }
+  }, [])
+
+  // 添加节流函数
+  function throttle<T extends (...args: any[]) => any>(
+    func: T,
+    wait: number
+  ): (...args: Parameters<T>) => void {
+    let lastTime = 0;
+    return function(...args: Parameters<T>) {
+      const now = Date.now();
+      if (now - lastTime >= wait) {
+        func(...args);
+        lastTime = now;
+      }
+    };
+  }
 
   return (
-    <ErrorBoundary>
-      <Canvas
-        camera={{ 
-          position: [4, 2, 4],
-          fov: 50,
-          near: 0.1,
-          far: 1000
-        }}
-        shadows
-        style={{ width: '100%', height: '100vh' }}
-      >
-        <Suspense fallback={null}>
-          <color attach="background" args={[isPenToolActive ? '#ffffff' : '#f0f0f0']} />
-          
-          {/* 光照设置 */}
-          {!isPenToolActive && (
-            <>
-              <ambientLight intensity={0.8} />
-              <directionalLight 
-                position={[5, 5, 5]} 
-                intensity={1} 
-                castShadow
-                shadow-mapSize={[2048, 2048]}
-              />
-              <hemisphereLight intensity={0.5} />
-            </>
-          )}
-          
-          {/* 网格辅助线 */}
-          {!isPenToolActive && (
-            <Grid
-              args={[20, 20]}
-              cellSize={0.5}
-              cellThickness={0.5}
-              cellColor="#6f6f6f"
-              sectionSize={5}
-            />
-          )}
-
-          {/* 坐标轴 */}
-          {!isPenToolActive && <AxisHelper width={width} height={height} depth={depth} />}
-          
-          {children}
-          
-          {/* 坐标轴指示器 */}
-          <GizmoHelper
-            alignment="bottom-right"
-            margin={[80, 80]}
-          >
-            <GizmoViewport
-              axisColors={['#ff3653', '#0adb50', '#2c8fdf']}
-              labelColor="black"
-            />
-          </GizmoHelper>
-          
-          {/* 场景控制器 */}
-          <OrbitControls
-            ref={controlsRef}
-            enableDamping
-            dampingFactor={0.05}
-            rotateSpeed={0.5}
-            minDistance={2}
-            maxDistance={20}
-            enabled={true}  // 始终保持控制器启用
-            screenSpacePanning={true}
-            panSpeed={1.5}
+    <>
+      <color attach="background" args={[isPenToolActive ? '#ffffff' : '#f0f0f0']} />
+      
+      {/* 光照设置 */}
+      {!isPenToolActive && (
+        <>
+          <ambientLight intensity={0.8} />
+          <directionalLight 
+            position={[5, 5, 5]} 
+            intensity={1} 
+            castShadow
+            shadow-mapSize={[2048, 2048]}
           />
-        </Suspense>
-      </Canvas>
-    </ErrorBoundary>
+          <hemisphereLight intensity={0.5} />
+        </>
+      )}
+      
+      {/* 网格辅助线 */}
+      {!isPenToolActive && (
+        <Grid
+          args={[20, 20]}
+          cellSize={0.5}
+          cellThickness={0.5}
+          cellColor="#6f6f6f"
+          sectionSize={5}
+        />
+      )}
+
+      {/* 坐标轴 */}
+      {!isPenToolActive && <AxisHelper width={width} height={height} depth={depth} />}
+      
+      {children}
+      
+      {/* 场景控制器 */}
+      <OrbitControls
+        ref={controlsRef}
+        enableDamping
+        dampingFactor={0.05}
+        rotateSpeed={0.5}
+        minDistance={2}
+        maxDistance={20}
+        enabled={true}  // 始终保持控制器启用
+        screenSpacePanning={true}
+        panSpeed={1.5}
+      />
+    </>
   )
 } 

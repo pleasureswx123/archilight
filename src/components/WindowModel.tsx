@@ -1,120 +1,81 @@
-import { useRef } from 'react'
-import { Mesh, EdgesGeometry, LineSegments, BufferGeometry, BoxGeometry } from 'three'
+import React from 'react'
+import { WindowMullions } from './WindowMullions'
+import { WindowPanes } from './WindowPanes'
+import { WindowFrame } from './WindowFrame'
+import { MullionConfig, WindowPane } from '../types/window'
 
 interface WindowProps {
-  position?: [number, number, number]
-  width?: number
-  height?: number
-  depth?: number
+  width: number        // 毫米
+  height: number       // 毫米
+  depth: number        // 毫米
+  frameWidth?: number  // 毫米，窗框粗细，可选参数
+  config: MullionConfig
+  panes: WindowPane[]
+  onMullionMove?: (direction: 'horizontal' | 'vertical', index: number, position: number) => void
+  onMullionDragStateChange?: (isDragging: boolean) => void
+  onPaneSelect?: (paneId: string) => void
   isPenToolActive?: boolean
 }
 
-export const WindowModel = ({
-  position = [0, 0, 0],
-  width = 2000,  // 默认2000毫米
-  height = 1500, // 默认1500毫米
-  depth = 100,   // 默认100毫米
+export const WindowModel: React.FC<WindowProps> = ({
+  width,
+  height,
+  depth,
+  frameWidth = 50, // 默认值为50毫米
+  config,
+  panes,
+  onMullionMove,
+  onMullionDragStateChange,
+  onPaneSelect,
   isPenToolActive = false
-}: WindowProps) => {
-  const meshRef = useRef<Mesh>(null)
-
-  // 将毫米转换为Three.js单位（1单位 = 1米）
+}) => {
+  // 转换为米
   const meterWidth = width / 1000
   const meterHeight = height / 1000
   const meterDepth = depth / 1000
-  
-  // 窗框宽度（50毫米 = 0.05米）
-  const frameWidth = 0.05
+  const meterFrameWidth = frameWidth / 1000 // 转换为米
 
-  // 框架线条配置
-  const frameLineConfig = {
-    count: 5,           // 平行线数量
-    spacing: 0.01,      // 线条间距（米）
-    color: 'black'      // 线条颜色
-  }
+  console.log('%c【窗户模型】使用统一坐标系 - 左下角为原点', 'background-color: #e3f2fd; color: #1565c0; font-weight: bold', {
+    窗宽: meterWidth.toFixed(3) + ' m',
+    窗高: meterHeight.toFixed(3) + ' m',
+    窗深: meterDepth.toFixed(3) + ' m',
+    框宽: meterFrameWidth.toFixed(3) + ' m'
+  });
 
-  // 标准材质
-  const standardMaterial = {
-    color: '#666666',
-    roughness: 0.5,
-    metalness: 0.5
-  }
-
-  // 渲染框架线条
-  const renderFrameLines = (
-    isHorizontal: boolean,
-    length: number,
-    offset: number = 0
-  ) => {
-    const lines = []
-    const totalSpan = (frameLineConfig.count - 1) * frameLineConfig.spacing
-    
-    for (let i = 0; i < frameLineConfig.count; i++) {
-      const lineOffset = offset + (i - (frameLineConfig.count - 1) / 2) * frameLineConfig.spacing
-      
-      const points = isHorizontal
-        ? [
-            [-length/2, lineOffset, 0],
-            [length/2, lineOffset, 0]
-          ]
-        : [
-            [lineOffset, -length/2, 0],
-            [lineOffset, length/2, 0]
-          ]
-
-      lines.push(
-        <line key={i}>
-          <bufferGeometry>
-            <float32BufferAttribute
-              attach="attributes-position"
-              args={[new Float32Array(points.flat()), 3]}
-            />
-          </bufferGeometry>
-          <lineBasicMaterial color={frameLineConfig.color} />
-        </line>
-      )
-    }
-
-    return <>{lines}</>
-  }
-  
   return (
-    <group position={position}>
-      {/* 上框 */}
-      <group position={[0, meterHeight/2 - frameWidth/2, 0]}>
-        <mesh castShadow receiveShadow visible={!isPenToolActive}>
-          <boxGeometry args={[meterWidth, frameWidth, meterDepth]} />
-          <meshStandardMaterial {...standardMaterial} />
-        </mesh>
-        {isPenToolActive && renderFrameLines(true, meterWidth)}
-      </group>
+    <group position={[0, 0, 0]}>
+      {/* 窗框 */}
+      <WindowFrame
+        width={meterWidth}
+        height={meterHeight}
+        depth={meterDepth}
+        frameWidth={meterFrameWidth}
+        isPenToolActive={isPenToolActive}
+      />
       
-      {/* 下框 */}
-      <group position={[0, -meterHeight/2 + frameWidth/2, 0]}>
-        <mesh castShadow receiveShadow visible={!isPenToolActive}>
-          <boxGeometry args={[meterWidth, frameWidth, meterDepth]} />
-          <meshStandardMaterial {...standardMaterial} />
-        </mesh>
-        {isPenToolActive && renderFrameLines(true, meterWidth)}
-      </group>
+      {/* 中挺 */}
+      <WindowMullions
+        width={meterWidth}
+        height={meterHeight}
+        depth={meterDepth}
+        config={config}
+        frameWidth={meterFrameWidth}
+        onMullionMove={onMullionMove}
+        onMullionDragStateChange={onMullionDragStateChange}
+        isPenToolActive={isPenToolActive}
+      />
       
-      {/* 左框 */}
-      <group position={[-meterWidth/2 + frameWidth/2, 0, 0]}>
-        <mesh castShadow receiveShadow visible={!isPenToolActive}>
-          <boxGeometry args={[frameWidth, meterHeight, meterDepth]} />
-          <meshStandardMaterial {...standardMaterial} />
-        </mesh>
-        {isPenToolActive && renderFrameLines(false, meterHeight)}
-      </group>
-      
-      {/* 右框 */}
-      <group position={[meterWidth/2 - frameWidth/2, 0, 0]}>
-        <mesh castShadow receiveShadow visible={!isPenToolActive}>
-          <boxGeometry args={[frameWidth, meterHeight, meterDepth]} />
-          <meshStandardMaterial {...standardMaterial} />
-        </mesh>
-        {isPenToolActive && renderFrameLines(false, meterHeight)}
-      </group>
+      {/* 窗扇 */}
+      <WindowPanes
+        width={width}
+        height={height}
+        depth={depth}
+        config={config}
+        frameWidth={frameWidth}
+        panes={panes}
+        onPaneSelect={onPaneSelect}
+        isPenToolActive={isPenToolActive}
+      />
     </group>
   )
 } 

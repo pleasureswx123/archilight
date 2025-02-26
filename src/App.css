@@ -59,17 +59,16 @@ body {
 }
 
 .app-container {
-  width: 100%;
-  height: 100%;
-  position: relative;
   display: flex;
+  height: 100vh;
+  width: 100vw;
   overflow: hidden;
 }
 
 .canvas-container {
   flex: 1;
-  height: 100%;
   position: relative;
+  width: calc(100vw - 320px); /* 减去工具面板的宽度 */
 }
 
 .tools-container {
@@ -79,10 +78,6 @@ body {
   box-shadow: -2px 0 8px rgba(0, 0, 0, 0.1);
   padding: 20px;
   overflow-y: auto;
-  position: fixed;
-  right: 0;
-  top: 0;
-  bottom: 0;
   z-index: 1000;
 }
 
@@ -214,4 +209,316 @@ body {
 .mullion-list .ant-btn-text:hover {
   background-color: #fff2f0;
   color: #ff4d4f;
+}
+
+/* 窗格属性面板样式 */
+.parameter-section h2 {
+  display: flex;
+  align-items: center;
+  padding-bottom: 8px;
+  margin-bottom: 16px;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.parameter-section h2::before {
+  content: '';
+  display: inline-block;
+  width: 4px;
+  height: 14px;
+  background-color: #1890ff;
+  margin-right: 8px;
+  border-radius: 2px;
+}
+
+.ant-radio-button-wrapper {
+  flex: 1;
+  text-align: center;
+}
+
+.color-picker-container {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.color-preview {
+  width: 24px;
+  height: 24px;
+  border-radius: 4px;
+  border: 1px solid #d9d9d9;
+}
+
+/* 工具面板样式 */
+.tool-panel {
+  width: 320px;
+  height: 100%;
+  overflow-y: auto;
+  background-color: #f5f5f5;
+  padding: 16px;
+  box-shadow: -2px 0 5px rgba(0, 0, 0, 0.1);
+}
+
+.tool-panel h2 {
+  margin-top: 0;
+  margin-bottom: 16px;
+  color: #333;
+  font-size: 18px;
+  border-bottom: 1px solid #ddd;
+  padding-bottom: 8px;
+}
+
+.panel-section {
+  margin-bottom: 24px;
+}
+
+.section-header {
+  margin-top: 0;
+  margin-bottom: 12px;
+  color: #444;
+  font-size: 16px;
+  display: flex;
+  align-items: center;
+  position: relative;
+  border-bottom: 1px solid #eee;
+  padding-bottom: 6px;
+}
+
+.section-header::before {
+  content: "";
+  display: inline-block;
+  width: 4px;
+  height: 16px;
+  background-color: #1890ff;
+  margin-right: 8px;
+  border-radius: 2px;
+}
+
+.input-group {
+  margin-bottom: 12px;
+}
+
+.input-group label {
+  display: block;
+  margin-bottom: 4px;
+  color: #666;
+  font-size: 14px;
+}
+
+.input-group input,
+.input-group select {
+  width: 100%;
+  padding: 8px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 14px;
+}
+
+.input-group input:focus,
+.input-group select:focus {
+  outline: none;
+  border-color: #1890ff;
+  box-shadow: 0 0 0 2px rgba(24, 144, 255, 0.2);
+}
+
+/* 中挺列表样式 */
+.mullion-list {
+  margin-bottom: 16px;
+}
+
+.mullion-list h4 {
+  margin-top: 12px;
+  margin-bottom: 8px;
+  color: #555;
+  font-size: 14px;
+}
+
+.mullion-list ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.mullion-list li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px;
+  background-color: #fff;
+  margin-bottom: 4px;
+  border-radius: 4px;
+  border: 1px solid #eee;
+}
+
+.mullion-list li:hover {
+  background-color: #f0f7ff;
+}
+
+.delete-button {
+  background-color: #ff4d4f;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.delete-button:hover {
+  background-color: #ff7875;
+}
+
+/* 工具按钮 */
+.tool-button {
+  width: 100%;
+  padding: 10px;
+  background-color: #1890ff;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.tool-button:hover {
+  background-color: #40a9ff;
+}
+
+.tool-button.active {
+  background-color: #096dd9;
+}
+
+.tip {
+  margin-top: 8px;
+  padding: 8px;
+  background-color: #fffbe6;
+  border: 1px solid #ffe58f;
+  border-radius: 4px;
+}
+
+.tip p {
+  margin: 0;
+  color: #876800;
+  font-size: 12px;
+}
+
+/* 颜色选择器 */
+.color-pickers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-top: 12px;
+}
+
+.color-picker {
+  flex: 1;
+  min-width: 120px;
+}
+
+.color-picker label {
+  display: block;
+  margin-bottom: 4px;
+  color: #666;
+  font-size: 14px;
+}
+
+.color-preview {
+  cursor: pointer;
+  padding: 2px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  display: inline-block;
+}
+
+.color-preview div {
+  width: 36px;
+  height: 36px;
+  border-radius: 2px;
+}
+
+.color-picker-popover {
+  position: absolute;
+  z-index: 2;
+}
+
+.color-picker-cover {
+  position: fixed;
+  top: 0px;
+  right: 0px;
+  bottom: 0px;
+  left: 0px;
+}
+
+/* 单选按钮组 */
+.radio-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.radio-wrapper {
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  padding: 6px 12px;
+  background-color: #f0f0f0;
+  border-radius: 4px;
+  flex: 1;
+  min-width: 80px;
+  text-align: center;
+  justify-content: center;
+}
+
+.radio-wrapper input {
+  margin-right: 6px;
+  width: auto;
+}
+
+.radio-wrapper:hover {
+  background-color: #e6f7ff;
+}
+
+/* 中挺列表项样式 */
+.mullion-list-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  margin-bottom: 8px;
+  background-color: #f9f9f9;
+  border-radius: 4px;
+  border: 1px solid #eee;
+}
+
+.mullion-position-control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.position-input {
+  width: 50px;
+  text-align: right;
+  padding: 4px 8px;
+  border: 1px solid #d9d9d9;
+  border-radius: 4px;
+}
+
+.percent-sign {
+  color: #666;
+}
+
+.delete-button {
+  background-color: #ff4d4f;
+  color: white;
+  border: none;
+  padding: 4px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background-color 0.3s;
+}
+
+.delete-button:hover {
+  background-color: #ff7875;
 }
